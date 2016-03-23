@@ -357,7 +357,10 @@ static int64_t get_average_for_timer(int timer_idx)
 		i++;
 	}
 
-	return average / timer_samples[timer_idx];
+	if (timer_samples[timer_idx] == 0)
+		return -1;
+	else
+		return average / timer_samples[timer_idx];
 }
 
 static void output_timers() {
