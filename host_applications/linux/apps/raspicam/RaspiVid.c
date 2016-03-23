@@ -227,6 +227,14 @@ static XREF_T  intra_refresh_map[] =
 
 static int intra_refresh_map_size = sizeof(intra_refresh_map) / sizeof(intra_refresh_map[0]);
 
+#define TIMER_SAMPLES 100
+#define TIMER_COUNT 2
+#define WAIT_FOR_NEXT_CHANGE_TIMER 0
+#define CAPTURE_TIMER 1
+#define WRITE_TIMER 2
+static int timer_ptr[TIMER_COUNT];
+static int64_t timers[TIMER_COUNT][TIMER_SAMPLES];
+static int timer_samples[TIMER_COUNT];
 
 static void display_valid_parameters(char *app_name);
 
@@ -312,7 +320,51 @@ static struct
 
 static int wait_method_description_size = sizeof(wait_method_description) / sizeof(wait_method_description[0]);
 
+static void init_timers()
+{
+	int i =0;
 
+	while (i < TIMER_COUNT)
+	{
+		timer_samples[i] = 0;
+		timer_ptr[i] = 0;
+
+		i++;
+	}
+}
+
+static void update_timer(int timer_idx, int64_t start_time) {
+	int64_t stop_time =  vcos_getmicrosecs64()/1000;
+
+	if (timer_ptr[timer_idx] == timer_samples[timer_idx])
+		timer_ptr[timer_idx] = 0;
+	else
+		timer_samples[timer_idx]++;
+
+	timers[timer_idx][timer_ptr[timer_idx]] = stop_time - start_time;
+
+	timer_ptr[timer_idx]++;
+}
+
+static int64_t get_average_for_timer(int timer_idx)
+{
+	int average = 0;
+	int i = 0;
+
+	while (i < timer_samples[timer_idx])
+	{
+		average += timers[timer_idx];
+		i++;
+	}
+
+	return average / timer_samples[timer_idx];
+}
+
+static void output_timers() {
+	fprintf(stderr, "Wait for next timer average time: %i samples: %i\n", get_average_for_timer(0), timer_samples[0]);
+	fprintf(stderr, "Capture timer average time      : %i samples: %i\n", get_average_for_timer(1), timer_samples[1]);
+	fprintf(stderr, "Write timer average time        : %i samples: %i\n", get_average_for_timer(2), timer_samples[2]);
+}
 
 /**
  * Assign a default set of parameters to the state passed in
@@ -1861,6 +1913,7 @@ static int wait_for_next_change(RASPIVID_STATE *state)
          // Have a sleep so we don't hog the CPU.
          vcos_sleep(10000);
 
+      update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
       return 0;
    }
 
@@ -1872,6 +1925,9 @@ static int wait_for_next_change(RASPIVID_STATE *state)
          abort = pause_and_test_abort(state, state->onTime);
       else
          abort = pause_and_test_abort(state, state->offTime);
+
+
+      update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
 
       if (abort)
          return 0;
@@ -1941,6 +1997,8 @@ int main(int argc, const char **argv)
    MMAL_PORT_T *preview_input_port = NULL;
    MMAL_PORT_T *encoder_input_port = NULL;
    MMAL_PORT_T *encoder_output_port = NULL;
+
+   init_timers();
 
    bcm_host_init();
 
@@ -2320,6 +2378,8 @@ error:
 
    if (status != MMAL_SUCCESS)
       raspicamcontrol_check_configuration(128);
+
+   output_timers();
 
    return exit_code;
 }
