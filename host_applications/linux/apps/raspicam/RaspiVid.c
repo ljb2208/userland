@@ -336,6 +336,8 @@ static void init_timers()
 static void update_timer(int timer_idx, int64_t start_time) {
 	int64_t stop_time =  vcos_getmicrosecs64()/1000;
 
+	fprintf(stderr, "update_timer call");
+
 	if (timer_ptr[timer_idx] == TIMER_SAMPLES)
 		timer_ptr[timer_idx] = 0;
 	else
@@ -1907,6 +1909,7 @@ static int wait_for_next_change(RASPIVID_STATE *state)
    {
    case WAIT_METHOD_NONE:
       (void)pause_and_test_abort(state, state->timeout);
+      update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
       return 0;
 
    case WAIT_METHOD_FOREVER:
@@ -1976,11 +1979,13 @@ static int wait_for_next_change(RASPIVID_STATE *state)
       if (state->verbose && result != 0)
          fprintf(stderr, "Bad signal received - error %d\n", errno);
 
+      update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
       return keep_running;
    }
 
    } // switch
 
+   update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
    return keep_running;
 }
 
@@ -2254,6 +2259,7 @@ int main(int argc, const char **argv)
                while (running)
                {
                   // Change state
+            	  int64_t start_time =  vcos_getmicrosecs64()/1000;
 
                   state.bCapturing = !state.bCapturing;
 
@@ -2293,6 +2299,7 @@ int main(int argc, const char **argv)
                      initialCapturing=0;
                   }
                   running = wait_for_next_change(&state);
+                  update_timer(CAPTURE_TIMER, start_time);
                }
 
                if (state.verbose)
