@@ -336,7 +336,7 @@ static void init_timers()
 static void update_timer(int timer_idx, int64_t start_time) {
 	int64_t stop_time =  vcos_getmicrosecs64()/1000;
 
-	if (timer_ptr[timer_idx] == timer_samples[timer_idx])
+	if (timer_ptr[timer_idx] == TIMER_SAMPLES)
 		timer_ptr[timer_idx] = 0;
 	else
 		timer_samples[timer_idx]++;
