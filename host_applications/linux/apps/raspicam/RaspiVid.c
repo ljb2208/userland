@@ -337,11 +337,12 @@ static void init_timers()
 static void update_timer(int timer_idx, int64_t start_time) {
 	int64_t stop_time =  vcos_getmicrosecs64()/1000;
 
-	fprintf(stderr, "update_timer call");
+	fprintf(stderr, "update_timer call\n");
 
 	if (timer_ptr[timer_idx] == TIMER_SAMPLES)
 		timer_ptr[timer_idx] = 0;
-	else
+
+	if (timer_samples[timer_idx] < TIMER_SAMPLES)
 		timer_samples[timer_idx]++;
 
 	timers[timer_idx][timer_ptr[timer_idx]] = stop_time - start_time;
