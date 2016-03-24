@@ -228,11 +228,12 @@ static XREF_T  intra_refresh_map[] =
 static int intra_refresh_map_size = sizeof(intra_refresh_map) / sizeof(intra_refresh_map[0]);
 
 #define TIMER_SAMPLES 100
-#define TIMER_COUNT 3
+#define TIMER_COUNT 4
 #define WAIT_FOR_NEXT_CHANGE_TIMER 0
 #define CAPTURE_TIMER 1
 #define WRITE_TIMER 2
 #define INIT_TIMER 3
+#define ENCODER_TIMER 4
 static int timer_ptr[TIMER_COUNT];
 static int64_t timers[TIMER_COUNT][TIMER_SAMPLES];
 static int timer_samples[TIMER_COUNT];
@@ -357,7 +358,7 @@ static int64_t get_average_for_timer(int timer_idx)
 
 	while (i < timer_samples[timer_idx])
 	{
-		average += timers[timer_idx];
+		average += timers[timer_idx][i];
 		i++;
 	}
 
@@ -372,6 +373,7 @@ static void output_timers() {
 	fprintf(stderr, "Capture timer average time      : %i samples: %i\n", get_average_for_timer(1), timer_samples[1]);
 	fprintf(stderr, "Write timer average time        : %i samples: %i\n", get_average_for_timer(2), timer_samples[2]);
 	fprintf(stderr, "Init  timer average time        : %i samples: %i\n", get_average_for_timer(3), timer_samples[3]);
+	fprintf(stderr, "Encoder  timer average time     : %i samples: %i\n", get_average_for_timer(4), timer_samples[4]);
 }
 
 /**
@@ -1100,6 +1102,8 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
    static int64_t base_time =  -1;
    static int64_t last_second = -1;
 
+   int64_t start_time = vcos_getmicrosecs64()/1000;
+
    // All our segment times based on the receipt of the first encoder callback
    if (base_time == -1)
       base_time = vcos_getmicrosecs64()/1000;
@@ -1292,6 +1296,8 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
       if (!new_buffer || status != MMAL_SUCCESS)
          vcos_log_error("Unable to return a buffer to the encoder port");
    }
+
+   update_timer(ENCODER_TIMER, start_time);
 }
 
 /**
