@@ -228,10 +228,11 @@ static XREF_T  intra_refresh_map[] =
 static int intra_refresh_map_size = sizeof(intra_refresh_map) / sizeof(intra_refresh_map[0]);
 
 #define TIMER_SAMPLES 100
-#define TIMER_COUNT 2
+#define TIMER_COUNT 3
 #define WAIT_FOR_NEXT_CHANGE_TIMER 0
 #define CAPTURE_TIMER 1
 #define WRITE_TIMER 2
+#define INIT_TIMER 3
 static int timer_ptr[TIMER_COUNT];
 static int64_t timers[TIMER_COUNT][TIMER_SAMPLES];
 static int timer_samples[TIMER_COUNT];
@@ -1994,6 +1995,8 @@ static int wait_for_next_change(RASPIVID_STATE *state)
  */
 int main(int argc, const char **argv)
 {
+   int64_t current_time =  vcos_getmicrosecs64()/1000;
+
    // Our main data storage vessel..
    RASPIVID_STATE state;
    int exit_code = EX_OK;
@@ -2215,6 +2218,8 @@ int main(int argc, const char **argv)
             vcos_log_error("Failed to setup encoder output");
             goto error;
          }
+
+         update_timer(INIT_TIMER, current_time);
 
          if (state.demoMode)
          {
