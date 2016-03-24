@@ -370,6 +370,7 @@ static void output_timers() {
 	fprintf(stderr, "Wait for next timer average time: %i samples: %i\n", get_average_for_timer(0), timer_samples[0]);
 	fprintf(stderr, "Capture timer average time      : %i samples: %i\n", get_average_for_timer(1), timer_samples[1]);
 	fprintf(stderr, "Write timer average time        : %i samples: %i\n", get_average_for_timer(2), timer_samples[2]);
+	fprintf(stderr, "Init  timer average time        : %i samples: %i\n", get_average_for_timer(3), timer_samples[3]);
 }
 
 /**
