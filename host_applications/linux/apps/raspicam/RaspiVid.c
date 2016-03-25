@@ -228,15 +228,17 @@ static XREF_T  intra_refresh_map[] =
 static int intra_refresh_map_size = sizeof(intra_refresh_map) / sizeof(intra_refresh_map[0]);
 
 #define TIMER_SAMPLES 100
-#define TIMER_COUNT 4
+#define TIMER_COUNT 6
 #define WAIT_FOR_NEXT_CHANGE_TIMER 0
 #define CAPTURE_TIMER 1
 #define WRITE_TIMER 2
 #define INIT_TIMER 3
 #define ENCODER_TIMER 4
+#define ENCODER_CYCLE_TIMER 5
 static int timer_ptr[TIMER_COUNT];
 static int64_t timers[TIMER_COUNT][TIMER_SAMPLES];
 static int timer_samples[TIMER_COUNT];
+static int timer_started[TIMER_COUNT];
 
 static void display_valid_parameters(char *app_name);
 
@@ -330,15 +332,25 @@ static void init_timers()
 	{
 		timer_samples[i] = 0;
 		timer_ptr[i] = 0;
+		timer_started[i] = 0;
 
 		i++;
 	}
 }
 
-static void update_timer(int timer_idx, int64_t start_time) {
-	int64_t stop_time =  vcos_getmicrosecs64()/1000;
+static void start_timer(int timer_idx) {
+	int64_t start_time = vcos_getmicrosecs64()/1000;
+	timers[timer_idx][timer_ptr[timer_idx]] = start_time;
+	timer_started[timer_idx] = 1;
+}
 
-	fprintf(stderr, "update_timer call\n");
+static void stop_timer(int timer_idx) {
+
+	if (timer_started[timer_idx] == 0)
+		return;
+
+	int64_t stop_time =  vcos_getmicrosecs64()/1000;
+	int64_t start_time = timers[timer_idx][timer_ptr[timer_idx]];
 
 	if (timer_ptr[timer_idx] == TIMER_SAMPLES)
 		timer_ptr[timer_idx] = 0;
@@ -351,9 +363,9 @@ static void update_timer(int timer_idx, int64_t start_time) {
 	timer_ptr[timer_idx]++;
 }
 
-static int64_t get_average_for_timer(int timer_idx)
+static double get_average_for_timer(int timer_idx)
 {
-	int average = 0;
+	double average = 0;
 	int i = 0;
 
 	while (i < timer_samples[timer_idx])
@@ -369,11 +381,11 @@ static int64_t get_average_for_timer(int timer_idx)
 }
 
 static void output_timers() {
-	fprintf(stderr, "Wait for next timer average time: %" PRId64 " samples: %i\n", get_average_for_timer(0), timer_samples[0]);
-	fprintf(stderr, "Capture timer average time      : %" PRId64 " samples: %i\n", get_average_for_timer(1), timer_samples[1]);
-	fprintf(stderr, "Write timer average time        : %" PRId64 " samples: %i\n", get_average_for_timer(2), timer_samples[2]);
-	fprintf(stderr, "Init  timer average time        : %" PRId64 " samples: %i\n", get_average_for_timer(3), timer_samples[3]);
-	fprintf(stderr, "Encoder  timer average time     : %" PRId64 " samples: %i\n", get_average_for_timer(4), timer_samples[4]);
+	fprintf(stderr, "Wait for next timer average time: %f samples: %i\n", get_average_for_timer(0), timer_samples[0]);
+	fprintf(stderr, "Capture timer average time      : %f samples: %i\n", get_average_for_timer(1), timer_samples[1]);
+	fprintf(stderr, "Write timer average time        : %f samples: %i\n", get_average_for_timer(2), timer_samples[2]);
+	fprintf(stderr, "Init  timer average time        : %f samples: %i\n", get_average_for_timer(3), timer_samples[3]);
+	fprintf(stderr, "Encoder  timer average time     : %f samples: %i\n", get_average_for_timer(4), timer_samples[4]);
 }
 
 /**
@@ -1102,7 +1114,8 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
    static int64_t base_time =  -1;
    static int64_t last_second = -1;
 
-   int64_t start_time = vcos_getmicrosecs64()/1000;
+   start_timer(ENCODER_TIMER);
+   stop_timer(ENCODER_CYCLE_TIMER);
 
    // All our segment times based on the receipt of the first encoder callback
    if (base_time == -1)
@@ -1297,7 +1310,8 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
          vcos_log_error("Unable to return a buffer to the encoder port");
    }
 
-   update_timer(ENCODER_TIMER, start_time);
+   stop_timer(ENCODER_TIMER);
+   start_timer(ENCODER_CYCLE_TIMER);
 }
 
 /**
@@ -1904,6 +1918,7 @@ static int wait_for_next_change(RASPIVID_STATE *state)
    int keep_running = 1;
    static int64_t complete_time = -1;
 
+   start_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
    // Have we actually exceeded our timeout?
    int64_t current_time =  vcos_getmicrosecs64()/1000;
 
@@ -1918,7 +1933,7 @@ static int wait_for_next_change(RASPIVID_STATE *state)
    {
    case WAIT_METHOD_NONE:
       (void)pause_and_test_abort(state, state->timeout);
-      update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
+      stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
       return 0;
 
    case WAIT_METHOD_FOREVER:
@@ -1928,7 +1943,7 @@ static int wait_for_next_change(RASPIVID_STATE *state)
          // Have a sleep so we don't hog the CPU.
          vcos_sleep(10000);
 
-      update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
+      stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
       return 0;
    }
 
@@ -1942,7 +1957,7 @@ static int wait_for_next_change(RASPIVID_STATE *state)
          abort = pause_and_test_abort(state, state->offTime);
 
 
-      update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
+      stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
 
       if (abort)
          return 0;
@@ -1988,13 +2003,13 @@ static int wait_for_next_change(RASPIVID_STATE *state)
       if (state->verbose && result != 0)
          fprintf(stderr, "Bad signal received - error %d\n", errno);
 
-      update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
+      stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
       return keep_running;
    }
 
    } // switch
 
-   update_timer(WAIT_FOR_NEXT_CHANGE_TIMER, current_time);
+   stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
    return keep_running;
 }
 
@@ -2003,7 +2018,7 @@ static int wait_for_next_change(RASPIVID_STATE *state)
  */
 int main(int argc, const char **argv)
 {
-   int64_t current_time =  vcos_getmicrosecs64()/1000;
+   start_timer(INIT_TIMER);
 
    // Our main data storage vessel..
    RASPIVID_STATE state;
@@ -2228,7 +2243,7 @@ int main(int argc, const char **argv)
             goto error;
          }
 
-         update_timer(INIT_TIMER, current_time);
+         stop_timer(INIT_TIMER);
 
          if (state.demoMode)
          {
@@ -2272,9 +2287,8 @@ int main(int argc, const char **argv)
                int initialCapturing=state.bCapturing;
                while (running)
                {
+            	   start_timer(CAPTURE_TIMER);
                   // Change state
-            	  int64_t start_time =  vcos_getmicrosecs64()/1000;
-
                   state.bCapturing = !state.bCapturing;
 
                   if (mmal_port_parameter_set_boolean(camera_video_port, MMAL_PARAMETER_CAPTURE, state.bCapturing) != MMAL_SUCCESS)
@@ -2313,7 +2327,7 @@ int main(int argc, const char **argv)
                      initialCapturing=0;
                   }
                   running = wait_for_next_change(&state);
-                  update_timer(CAPTURE_TIMER, start_time);
+                  stop_timer(CAPTURE_TIMER);
                }
 
                if (state.verbose)
