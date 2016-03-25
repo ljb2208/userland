@@ -238,7 +238,7 @@ static int intra_refresh_map_size = sizeof(intra_refresh_map) / sizeof(intra_ref
 static int timer_ptr[TIMER_COUNT];
 static int64_t timers[TIMER_COUNT][TIMER_SAMPLES];
 static int timer_samples[TIMER_COUNT];
-static int timer_started[TIMER_COUNT];
+static int64_t timer_started[TIMER_COUNT];
 
 static void display_valid_parameters(char *app_name);
 
@@ -339,8 +339,7 @@ static void init_timers()
 }
 
 static void start_timer(int timer_idx) {
-	timers[timer_idx][timer_ptr[timer_idx]] = vcos_getmicrosecs64()/1000;
-	timer_started[timer_idx] = 1;
+	timer_started[timer_idx] = vcos_getmicrosecs64()/1000;
 }
 
 static void stop_timer(int timer_idx) {
@@ -349,7 +348,7 @@ static void stop_timer(int timer_idx) {
 		return;
 
 	int64_t stop_time =  vcos_getmicrosecs64()/1000;
-	int64_t start_time = timers[timer_idx][timer_ptr[timer_idx]];
+	int64_t start_time = timer_started[timer_idx];
 
 	if (timer_samples[timer_idx] < TIMER_SAMPLES)
 		timer_samples[timer_idx]++;
@@ -360,6 +359,8 @@ static void stop_timer(int timer_idx) {
 
 	if (timer_ptr[timer_idx] == TIMER_SAMPLES)
 		timer_ptr[timer_idx] = 0;
+
+	timer_started[timer_idx] = 0;
 }
 
 static double get_average_for_timer(int timer_idx)
