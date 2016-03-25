@@ -339,8 +339,7 @@ static void init_timers()
 }
 
 static void start_timer(int timer_idx) {
-	int64_t start_time = vcos_getmicrosecs64()/1000;
-	timers[timer_idx][timer_ptr[timer_idx]] = start_time;
+	timers[timer_idx][timer_ptr[timer_idx]] = vcos_getmicrosecs64()/1000;
 	timer_started[timer_idx] = 1;
 }
 
@@ -352,15 +351,15 @@ static void stop_timer(int timer_idx) {
 	int64_t stop_time =  vcos_getmicrosecs64()/1000;
 	int64_t start_time = timers[timer_idx][timer_ptr[timer_idx]];
 
-	if (timer_ptr[timer_idx] == TIMER_SAMPLES)
-		timer_ptr[timer_idx] = 0;
-
 	if (timer_samples[timer_idx] < TIMER_SAMPLES)
 		timer_samples[timer_idx]++;
 
 	timers[timer_idx][timer_ptr[timer_idx]] = stop_time - start_time;
 
 	timer_ptr[timer_idx]++;
+
+	if (timer_ptr[timer_idx] == TIMER_SAMPLES)
+		timer_ptr[timer_idx] = 0;
 }
 
 static double get_average_for_timer(int timer_idx)
@@ -381,11 +380,13 @@ static double get_average_for_timer(int timer_idx)
 }
 
 static void output_timers() {
+	fprintf(stderr, "************* TIMERS *******************************\n");
 	fprintf(stderr, "Wait for next timer average time: %f samples: %i\n", get_average_for_timer(0), timer_samples[0]);
 	fprintf(stderr, "Capture timer average time      : %f samples: %i\n", get_average_for_timer(1), timer_samples[1]);
 	fprintf(stderr, "Write timer average time        : %f samples: %i\n", get_average_for_timer(2), timer_samples[2]);
 	fprintf(stderr, "Init  timer average time        : %f samples: %i\n", get_average_for_timer(3), timer_samples[3]);
 	fprintf(stderr, "Encoder  timer average time     : %f samples: %i\n", get_average_for_timer(4), timer_samples[4]);
+	fprintf(stderr, "Encoder Cycle timer average time: %f samples: %i\n", get_average_for_timer(5), timer_samples[5]);
 }
 
 /**
@@ -1918,7 +1919,6 @@ static int wait_for_next_change(RASPIVID_STATE *state)
    int keep_running = 1;
    static int64_t complete_time = -1;
 
-   start_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
    // Have we actually exceeded our timeout?
    int64_t current_time =  vcos_getmicrosecs64()/1000;
 
@@ -1933,7 +1933,6 @@ static int wait_for_next_change(RASPIVID_STATE *state)
    {
    case WAIT_METHOD_NONE:
       (void)pause_and_test_abort(state, state->timeout);
-      stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
       return 0;
 
    case WAIT_METHOD_FOREVER:
@@ -1943,7 +1942,6 @@ static int wait_for_next_change(RASPIVID_STATE *state)
          // Have a sleep so we don't hog the CPU.
          vcos_sleep(10000);
 
-      stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
       return 0;
    }
 
@@ -1955,9 +1953,6 @@ static int wait_for_next_change(RASPIVID_STATE *state)
          abort = pause_and_test_abort(state, state->onTime);
       else
          abort = pause_and_test_abort(state, state->offTime);
-
-
-      stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
 
       if (abort)
          return 0;
@@ -2003,13 +1998,11 @@ static int wait_for_next_change(RASPIVID_STATE *state)
       if (state->verbose && result != 0)
          fprintf(stderr, "Bad signal received - error %d\n", errno);
 
-      stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
       return keep_running;
    }
 
    } // switch
 
-   stop_timer(WAIT_FOR_NEXT_CHANGE_TIMER);
    return keep_running;
 }
 
@@ -2018,8 +2011,6 @@ static int wait_for_next_change(RASPIVID_STATE *state)
  */
 int main(int argc, const char **argv)
 {
-   start_timer(INIT_TIMER);
-
    // Our main data storage vessel..
    RASPIVID_STATE state;
    int exit_code = EX_OK;
@@ -2034,6 +2025,8 @@ int main(int argc, const char **argv)
 
    init_timers();
    output_timers();
+
+   start_timer(INIT_TIMER);
 
    bcm_host_init();
 
