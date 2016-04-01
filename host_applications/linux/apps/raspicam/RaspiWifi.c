@@ -563,7 +563,7 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandTxCount,       "-txcount",    "wwx", "Block transmition count", 1},
    { CommandFifoStreams,   "-streams",    "wws", "FIFO Streams", 1},
    { CommandWifiInt,   		"-int",       "wwi", "Wifi Interface", 1},
-   { CommandWifiStreaming,	"-wifi"		  "wf" , "Streaming via wifi", 0},
+   { CommandWifiStreaming,	"-wifi",	  "wf" , "Streaming via wifi", 0},
 };
 
 static int cmdline_commands_size = sizeof(cmdline_commands) / sizeof(cmdline_commands[0]);
