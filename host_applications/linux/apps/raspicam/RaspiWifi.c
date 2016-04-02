@@ -2456,11 +2456,11 @@ static int init_wifi(RASPIVID_STATE *state)
 		return (1);
 	}
 
+	WIFI_STATE wifi_state;
+	memset(&wifi_state, 0, sizeof(WIFI_STATE));
 
-	memset(&state->wifi_state, 0, sizeof(WIFI_STATE));
-
-	state->wifi_state->packet_header_length = packet_header_init(state->wifi_state->packet_transmit_buffer);
-	fifo_init(state->wifi_state->fifo, state->param_fifo_count, state->param_data_packets_per_block);
+	wifi_state.packet_header_length = packet_header_init(wifi_state.packet_transmit_buffer);
+	fifo_init(wifi_state.fifo, state->param_fifo_count, state->param_data_packets_per_block);
 	//fifo_open(state->wifi_state.fifo, state->param_fifo_count);
 	//fifo_create_select_set(state->wifi_state.fifo, state->param_fifo_count, &state->wifi_state.fifo_set, &state->wifi_state.max_fifo_fd);
 
@@ -2468,22 +2468,24 @@ static int init_wifi(RASPIVID_STATE *state)
 	//initialize forward error correction
 	fec_init();
 
-	state->wifi_state->fBrokenSocket = 0;
-	state->wifi_state->pcnt = 0;
-	state->wifi_state->packet_header_length = 0;
-	state->wifi_state->max_fifo_fd = -1;
+	wifi_state.fBrokenSocket = 0;
+	wifi_state.pcnt = 0;
+	wifi_state.packet_header_length = 0;
+	wifi_state.max_fifo_fd = -1;
 
 	// open the interface in pcap
-	state->wifi_state->szErrbuf[0] = '\0';
-	state->wifi_state->ppcap = pcap_open_live(state->param_interface, 800, 1, 20, state->wifi_state->szErrbuf);
-	if (state->wifi_state->ppcap == NULL) {
+	wifi_state.szErrbuf[0] = '\0';
+	wifi_state.ppcap = pcap_open_live(state->param_interface, 800, 1, 20, wifi_state.szErrbuf);
+	if (wifi_state.ppcap == NULL) {
 		fprintf(stderr, "Unable to open interface %s in pcap: %s\n",
-				state->param_interface, state->wifi_state->szErrbuf);
+				state->param_interface, wifi_state.szErrbuf);
 		return (1);
 	}
 
 
-	pcap_setnonblock(state->wifi_state->ppcap, 0, state->wifi_state->szErrbuf);
+	pcap_setnonblock(wifi_state.ppcap, 0, wifi_state.szErrbuf);
+
+	state->wifi_state = &wifi_state;
 
 	return 0;
 }
