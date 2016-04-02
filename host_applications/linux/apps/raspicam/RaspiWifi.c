@@ -259,7 +259,7 @@ struct RASPIVID_STATE_S
    int sensor_mode;			            /// Sensor mode. 0=auto. Check docs/forum for modes selected by other values.
    int intra_refresh_type;              /// What intra refresh type to use. -1 to not set.
 
-   WIFI_STATE wifi_state;
+   WIFI_STATE *wifi_state;
    int bWifiStreaming;
 
    int param_transmission_count;
@@ -1479,7 +1479,7 @@ static void output_to_wifi(MMAL_BUFFER_HEADER_T *buffer, RASPIVID_STATE *state)
 
 	while (buffer_idx < buffer_length)
 	{
-		packet_buffer_t *pb = state->wifi_state.fifo[0].pbl + state->wifi_state.fifo[0].curr_pb;
+		packet_buffer_t *pb = state->wifi_state->fifo[0].pbl + state->wifi_state->fifo[0].curr_pb;
 
 		//if the buffer is fresh we add a payload header
 		if(pb->len == 0) {
@@ -1488,7 +1488,7 @@ static void output_to_wifi(MMAL_BUFFER_HEADER_T *buffer, RASPIVID_STATE *state)
 
 		buffer_read_size = state->param_packet_length - pb->len;
 
-		if (buffer_read_size > buffer_length - buffer_idx)
+		if (buffer_read_size > (buffer_length - buffer_idx))
 			buffer_read_size = buffer_length - buffer_idx;
 
 		memcpy(pb->data + pb->len, &buffer[buffer_idx], buffer_read_size);
@@ -1506,12 +1506,12 @@ static void output_to_wifi(MMAL_BUFFER_HEADER_T *buffer, RASPIVID_STATE *state)
 			//pcnt++;
 
 			//check if this block is finished
-			if(state->wifi_state.fifo[0].curr_pb == state->param_data_packets_per_block-1) {
-				pb_transmit_block(state->wifi_state.fifo[0].pbl, state->wifi_state.ppcap, &(state->wifi_state.fifo[0].seq_nr), state->param_port, state->param_packet_length, state->wifi_state.packet_transmit_buffer, state->wifi_state.packet_header_length, state->param_data_packets_per_block, state->param_fec_packets_per_block, state->param_transmission_count);
-				state->wifi_state.fifo[0].curr_pb = 0;
+			if(state->wifi_state->fifo[0].curr_pb == state->param_data_packets_per_block-1) {
+				pb_transmit_block(state->wifi_state->fifo[0].pbl, state->wifi_state->ppcap, &(state->wifi_state->fifo[0].seq_nr), state->param_port, state->param_packet_length, state->wifi_state->packet_transmit_buffer, state->wifi_state->packet_header_length, state->param_data_packets_per_block, state->param_fec_packets_per_block, state->param_transmission_count);
+				state->wifi_state->fifo[0].curr_pb = 0;
 			}
 			else {
-				state->wifi_state.fifo[0].curr_pb++;
+				state->wifi_state->fifo[0].curr_pb++;
 			}
 
 		}
@@ -2434,6 +2434,8 @@ static int wait_for_next_change(RASPIVID_STATE *state)
 
 static int init_wifi(RASPIVID_STATE *state)
 {
+
+	fprintf(stderr, "Initializing wifi....\n");
 	if(state->param_packet_length > MAX_USER_PACKET_LENGTH) {
 		fprintf(stderr, "Packet length is limited to %d bytes (you requested %d bytes)\n", MAX_USER_PACKET_LENGTH, state->param_packet_length);
 		return (1);
@@ -2457,8 +2459,8 @@ static int init_wifi(RASPIVID_STATE *state)
 
 	memset(&state->wifi_state, 0, sizeof(WIFI_STATE));
 
-	state->wifi_state.packet_header_length = packet_header_init(state->wifi_state.packet_transmit_buffer);
-	fifo_init(state->wifi_state.fifo, state->param_fifo_count, state->param_data_packets_per_block);
+	state->wifi_state->packet_header_length = packet_header_init(state->wifi_state->packet_transmit_buffer);
+	fifo_init(state->wifi_state->fifo, state->param_fifo_count, state->param_data_packets_per_block);
 	//fifo_open(state->wifi_state.fifo, state->param_fifo_count);
 	//fifo_create_select_set(state->wifi_state.fifo, state->param_fifo_count, &state->wifi_state.fifo_set, &state->wifi_state.max_fifo_fd);
 
@@ -2466,22 +2468,22 @@ static int init_wifi(RASPIVID_STATE *state)
 	//initialize forward error correction
 	fec_init();
 
-	state->wifi_state.fBrokenSocket = 0;
-	state->wifi_state.pcnt = 0;
-	state->wifi_state.packet_header_length = 0;
-	state->wifi_state.max_fifo_fd = -1;
+	state->wifi_state->fBrokenSocket = 0;
+	state->wifi_state->pcnt = 0;
+	state->wifi_state->packet_header_length = 0;
+	state->wifi_state->max_fifo_fd = -1;
 
 	// open the interface in pcap
-	state->wifi_state.szErrbuf[0] = '\0';
-	state->wifi_state.ppcap = pcap_open_live(state->param_interface, 800, 1, 20, state->wifi_state.szErrbuf);
-	if (state->wifi_state.ppcap == NULL) {
+	state->wifi_state->szErrbuf[0] = '\0';
+	state->wifi_state->ppcap = pcap_open_live(state->param_interface, 800, 1, 20, state->wifi_state->szErrbuf);
+	if (state->wifi_state->ppcap == NULL) {
 		fprintf(stderr, "Unable to open interface %s in pcap: %s\n",
-				state->param_interface, state->wifi_state.szErrbuf);
+				state->param_interface, state->wifi_state->szErrbuf);
 		return (1);
 	}
 
 
-	pcap_setnonblock(state->wifi_state.ppcap, 0, state->wifi_state.szErrbuf);
+	pcap_setnonblock(state->wifi_state->ppcap, 0, state->wifi_state->szErrbuf);
 
 	return 0;
 }
@@ -2743,7 +2745,7 @@ int main(int argc, const char **argv)
          {
             // Only encode stuff if we have a filename and it opened
             // Note we use the copy in the callback, as the call back MIGHT change the file handle
-            if (state.callback_data.file_handle)
+            if (state.callback_data.file_handle || state.bWifiStreaming)
             {
                int running = 1;
 
