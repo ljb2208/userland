@@ -1503,7 +1503,7 @@ static void output_to_wifi(MMAL_BUFFER_HEADER_T *buffer, RASPIVID_STATE *state)
 		if(pb->len >= state->param_min_packet_length) {
 			payload_header_t *ph = (payload_header_t*)pb->data;
 			ph->data_length = pb->len - sizeof(payload_header_t); //write the length into the packet. this is needed since with fec we cannot use the wifi packet lentgh anymore. We could also set the user payload to a fixed size but this would introduce additional latency since tx would need to wait until that amount of data has been received
-			//pcnt++;
+			state->wifi_state->pcnt++;
 
 			//check if this block is finished
 			if(state->wifi_state->fifo[0].curr_pb == state->param_data_packets_per_block-1) {
@@ -1513,12 +1513,11 @@ static void output_to_wifi(MMAL_BUFFER_HEADER_T *buffer, RASPIVID_STATE *state)
 			else {
 				state->wifi_state->fifo[0].curr_pb++;
 			}
-
 		}
 
-//		if(pcnt % 128 == 0) {
-//			printf("%d data packets sent (interface rate: %.3f)\n", pcnt, 1.0 * pcnt / state->param_data_packets_per_block * (state->param_data_packets_per_block + state->param_fec_packets_per_block) / (time(NULL) - start_time));
-//		}
+		if(state->wifi_state->pcnt % 128 == 0) {
+			printf("%d data packets sent (interface rate: %.3f)\n", state->wifi_state->pcnt, 1.0 * state->wifi_state->pcnt / state->param_data_packets_per_block * (state->param_data_packets_per_block + state->param_fec_packets_per_block) / (time(NULL) - start_time));
+		}
 	}
 
 }
@@ -2435,7 +2434,7 @@ static int wait_for_next_change(RASPIVID_STATE *state)
 static int init_wifi(RASPIVID_STATE *state)
 {
 
-	fprintf(stderr, "Initializing wifi....\n");
+	fprintf(stderr, "Initializing wifi on %s....\n", state->param_interface);
 	if(state->param_packet_length > MAX_USER_PACKET_LENGTH) {
 		fprintf(stderr, "Packet length is limited to %d bytes (you requested %d bytes)\n", MAX_USER_PACKET_LENGTH, state->param_packet_length);
 		return (1);
