@@ -1516,7 +1516,7 @@ static void output_to_wifi(MMAL_BUFFER_HEADER_T *buffer, RASPIVID_STATE *state)
 		}
 
 		if(state->wifi_state->pcnt % 128 == 0) {
-			printf("%d data packets sent (interface rate: %.3f)\n", state->wifi_state->pcnt, 1.0 * state->wifi_state->pcnt / state->param_data_packets_per_block * (state->param_data_packets_per_block + state->param_fec_packets_per_block) / (time(NULL) - start_time));
+			printf("%d data packets sent (interface rate: %.3f)\n", state->wifi_state->pcnt, 1.0 * state->wifi_state->pcnt / state->param_data_packets_per_block * (state->param_data_packets_per_block + state->param_fec_packets_per_block) / (time(NULL) - state->wifi_state->start_time));
 		}
 	}
 
@@ -2471,6 +2471,7 @@ static int init_wifi(RASPIVID_STATE *state)
 	wifi_state.pcnt = 0;
 	wifi_state.packet_header_length = 0;
 	wifi_state.max_fifo_fd = -1;
+	wifi_state.start_time = time(NULL);
 
 	// open the interface in pcap
 	wifi_state.szErrbuf[0] = '\0';
