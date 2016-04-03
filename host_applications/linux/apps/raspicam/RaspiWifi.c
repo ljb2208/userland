@@ -1491,7 +1491,7 @@ static void output_to_wifi(MMAL_BUFFER_HEADER_T *buffer, RASPIVID_STATE *state)
 		if (buffer_read_size > (buffer_length - buffer_idx))
 			buffer_read_size = buffer_length - buffer_idx;
 
-		memcpy(pb->data + pb->len, &buffer[buffer_idx], buffer_read_size);
+		memcpy(pb->data + pb->len, &buffer->data[buffer_idx], sizeof(uint8_t) * buffer_read_size);
 		buffer_idx += buffer_read_size;
 
 		////read the data
