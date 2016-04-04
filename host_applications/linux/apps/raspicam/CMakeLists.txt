@@ -6,6 +6,11 @@ SET(COMPILE_DEFINITIONS -Werror)
 include_directories(${PROJECT_SOURCE_DIR}/host_applications/linux/libs/bcm_host/include)
 include_directories(${PROJECT_SOURCE_DIR}/host_applications/linux/apps/raspicam)
 include_directories(${PROJECT_SOURCE_DIR}/host_applications/linux/libs)
+include_directories(${PROJECT_SOURCE_DIR}/host_applications/linux/apps/hello_pi/libs/ilclient)
+include_directories(${PROJECT_SOURCE_DIR}/host_applications/linux/apps/hello_pi/libs/vgfont)
+
+set(ILCLIENT_SRCS ${PROJECT_SOURCE_DIR}/host_applications/linux/apps/hello_pi/libs/ilclient/ilclient.c ${PROJECT_SOURCE_DIR}/host_applications/linux/apps/hello_pi/libs/ilclient/ilcore.c)
+add_library(ilclient ${ILCLIENT_SRCS})
 
 link_directories(/home/lbarnett/development/wifi/pi3/usr/lib/arm-linux-gnueabihf)
 
@@ -26,6 +31,7 @@ add_executable(raspistill ${COMMON_SOURCES} RaspiStill.c  RaspiTex.c RaspiTexUti
 add_executable(raspiyuv   ${COMMON_SOURCES} RaspiStillYUV.c)
 add_executable(raspivid   ${COMMON_SOURCES} RaspiVid.c)
 add_executable(raspiwifi   ${COMMON_SOURCES} RaspiWifi.c lib.c radiotap.c fec.c)
+add_executable(raspiwifirx   ${COMMON_SOURCES} RaspiWifiRx.c lib.c radiotap.c fec.c)
 add_executable(raspividyuv  ${COMMON_SOURCES} RaspiVidYUV.c)
 
 set (MMAL_LIBS mmal_core mmal_util mmal_vc_client)
@@ -34,6 +40,7 @@ target_link_libraries(raspistill ${MMAL_LIBS} vcos bcm_host GLESv2 EGL m)
 target_link_libraries(raspiyuv   ${MMAL_LIBS} vcos bcm_host)
 target_link_libraries(raspivid   ${MMAL_LIBS} vcos bcm_host)
 target_link_libraries(raspiwifi   ${MMAL_LIBS} vcos bcm_host pcap)
+target_link_libraries(raspiwifirx   ${MMAL_LIBS} vcos bcm_host pcap ilclient openmaxil vchiq_arm)
 target_link_libraries(raspividyuv   ${MMAL_LIBS} vcos bcm_host)
 
-install(TARGETS raspistill raspiyuv raspivid raspiwifi raspividyuv RUNTIME DESTINATION bin)
+install(TARGETS raspistill raspiyuv raspivid raspiwifi raspiwifirx raspividyuv RUNTIME DESTINATION bin)

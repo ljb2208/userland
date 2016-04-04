@@ -309,58 +309,6 @@ static void fifo_init(fifo_t *fifo, int fifo_count, int block_size) {
 
 }
 
-static void fifo_open(fifo_t *fifo, int fifo_count) {
-	int i;
-	if(fifo_count > 1) {
-		//new FIFO style
-
-		//first, create all required fifos
-		for(i=0; i<fifo_count; ++i) {
-			char fn[256];
-			sprintf(fn, FIFO_NAME, i);
-
-			unlink(fn);
-			if(mkfifo(fn, 0666) != 0) {
-				fprintf(stderr, "Error creating FIFO \"%s\"\n", fn);
-				exit(1);
-			}
-		}
-
-		//second: wait for the data sources to connect
-		for(i=0; i<fifo_count; ++i) {
-			char fn[256];
-			sprintf(fn, FIFO_NAME, i);
-
-			printf("Waiting for \"%s\" being opened from the data source... \n", fn);
-			if((fifo[i].fd = open(fn, O_RDONLY)) < 0) {
-				fprintf(stderr, "Error opening FIFO \"%s\"\n", fn);
-				exit(1);
-			}
-			printf("OK\n");
-		}
-	}
-	else {
-		//old style STDIN input
-		fifo[0].fd = STDIN_FILENO;
-	}
-}
-
-
-static void fifo_create_select_set(fifo_t *fifo, int fifo_count, fd_set *fifo_set, int *max_fifo_fd) {
-	int i;
-
-	FD_ZERO(fifo_set);
-
-	for(i=0; i<fifo_count; ++i) {
-		FD_SET(fifo[i].fd, fifo_set);
-
-		if(fifo[i].fd > *max_fifo_fd) {
-			*max_fifo_fd = fifo[i].fd;
-		}
-	}
-}
-
-
 static void pb_transmit_packet(pcap_t *ppcap, int seq_nr, uint8_t *packet_transmit_buffer, int packet_header_len, const uint8_t *packet_data, int packet_length) {
     //add header outside of FEC
     wifi_packet_header_t *wph = (wifi_packet_header_t*)(packet_transmit_buffer + packet_header_len);
@@ -376,8 +324,6 @@ static void pb_transmit_packet(pcap_t *ppcap, int seq_nr, uint8_t *packet_transm
         exit(1);
     }
 }
-
-
 
 
 static void pb_transmit_block(packet_buffer_t *pbl, pcap_t *ppcap, int *seq_nr, int port, int packet_length, uint8_t *packet_transmit_buffer, int packet_header_len, int data_packets_per_block, int fec_packets_per_block, int transmission_count) {
@@ -427,8 +373,6 @@ static void pb_transmit_block(packet_buffer_t *pbl, pcap_t *ppcap, int *seq_nr, 
 	}
 
 	*seq_nr += data_packets_per_block + fec_packets_per_block;
-
-
 
 	//reset the length back
 	for(i=0; i< data_packets_per_block; ++i) {
@@ -717,6 +661,28 @@ static void default_status(RASPIVID_STATE *state)
 }
 
 
+static void dump_wifi_status(RASPIVID_STATE *state)
+{
+	if (!state->bWifiStreaming)
+	{
+		fprintf(stderr, "Wifi streaming not enabled\n");
+		return;
+	}
+
+	fprintf(stderr, "Wifi streaming enabled.\n");
+	fprintf(stderr, "Packet header Len  : %i\n", state->wifi_state->packet_header_length);
+	fprintf(stderr, "Max Fifo FD        : %i\n", state->wifi_state->max_fifo_fd);
+	fprintf(stderr, "Wifi Streaming     : %i\n", state->bWifiStreaming);
+	fprintf(stderr, "Data Pkts per Block: %i\n", state->param_data_packets_per_block);
+	fprintf(stderr, "FEC Pkts per Block : %i\n", state->param_fec_packets_per_block);
+	fprintf(stderr, "FIFO Count         : %i\n", state->param_fifo_count);
+	fprintf(stderr, "Interface          : %s\n", state->param_interface);
+	fprintf(stderr, "Min Packet Length  : %i\n", state->param_min_packet_length);
+	fprintf(stderr, "Packet Length      : %i\n", state->param_packet_length);
+	fprintf(stderr, "Port               : %i\n", state->param_port);
+	fprintf(stderr, "TX Count           : %i\n", state->param_transmission_count);
+}
+
 /**
  * Dump image state parameters to stderr.
  *
@@ -753,6 +719,8 @@ static void dump_status(RASPIVID_STATE *state)
 
    raspipreview_dump_parameters(&state->preview_parameters);
    raspicamcontrol_dump_parameters(&state->camera_parameters);
+
+   dump_wifi_status(state);
 }
 
 /**
@@ -1550,162 +1518,17 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
 
    if (pData)
    {
-      int bytes_written = buffer->length;
-      int64_t current_time = vcos_getmicrosecs64()/1000;
+     int64_t current_time = vcos_getmicrosecs64()/1000;
 
-      vcos_assert(pData->file_handle);
-      if(pData->pstate->inlineMotionVectors) vcos_assert(pData->imv_file_handle);
+	 if (buffer->length)
+	 {
+		mmal_buffer_header_mem_lock(buffer);
 
-      if (pData->cb_buff)
-      {
-         int space_in_buff = pData->cb_len - pData->cb_wptr;
-         int copy_to_end = space_in_buff > buffer->length ? buffer->length : space_in_buff;
-         int copy_to_start = buffer->length - copy_to_end;
+		if (pData->pstate->bWifiStreaming)
+			output_to_wifi(buffer, pData->pstate);
 
-         if(buffer->flags & MMAL_BUFFER_HEADER_FLAG_CONFIG)
-         {
-            if(pData->header_wptr + buffer->length > sizeof(pData->header_bytes))
-            {
-               vcos_log_error("Error in header bytes\n");
-            }
-            else
-            {
-               // These are the header bytes, save them for final output
-               mmal_buffer_header_mem_lock(buffer);
-               memcpy(pData->header_bytes + pData->header_wptr, buffer->data, buffer->length);
-               mmal_buffer_header_mem_unlock(buffer);
-               pData->header_wptr += buffer->length;
-            }
-         }
-         else if((buffer->flags & MMAL_BUFFER_HEADER_FLAG_CODECSIDEINFO))
-         {
-            // Do something with the inline motion vectors...
-         }
-         else
-         {
-            static int frame_start = -1;
-            int i;
-
-            if(frame_start == -1)
-               frame_start = pData->cb_wptr;
-
-            if(buffer->flags & MMAL_BUFFER_HEADER_FLAG_KEYFRAME)
-            {
-               pData->iframe_buff[pData->iframe_buff_wpos] = frame_start;
-               pData->iframe_buff_wpos = (pData->iframe_buff_wpos + 1) % IFRAME_BUFSIZE;
-            }
-
-            if(buffer->flags & MMAL_BUFFER_HEADER_FLAG_FRAME_END)
-               frame_start = -1;
-
-            // If we overtake the iframe rptr then move the rptr along
-            if((pData->iframe_buff_rpos + 1) % IFRAME_BUFSIZE != pData->iframe_buff_wpos)
-            {
-               while(
-                  (
-                     pData->cb_wptr <= pData->iframe_buff[pData->iframe_buff_rpos] &&
-                    (pData->cb_wptr + buffer->length) > pData->iframe_buff[pData->iframe_buff_rpos]
-                  ) ||
-                  (
-                    (pData->cb_wptr > pData->iframe_buff[pData->iframe_buff_rpos]) &&
-                    (pData->cb_wptr + buffer->length) > (pData->iframe_buff[pData->iframe_buff_rpos] + pData->cb_len)
-                  )
-               )
-                  pData->iframe_buff_rpos = (pData->iframe_buff_rpos + 1) % IFRAME_BUFSIZE;
-            }
-
-            mmal_buffer_header_mem_lock(buffer);
-            // We are pushing data into a circular buffer
-            memcpy(pData->cb_buff + pData->cb_wptr, buffer->data, copy_to_end);
-            memcpy(pData->cb_buff, buffer->data + copy_to_end, copy_to_start);
-            mmal_buffer_header_mem_unlock(buffer);
-
-            if((pData->cb_wptr + buffer->length) > pData->cb_len)
-               pData->cb_wrap = 1;
-
-            pData->cb_wptr = (pData->cb_wptr + buffer->length) % pData->cb_len;
-
-            for(i = pData->iframe_buff_rpos; i != pData->iframe_buff_wpos; i = (i + 1) % IFRAME_BUFSIZE)
-            {
-               int p = pData->iframe_buff[i];
-               if(pData->cb_buff[p] != 0 || pData->cb_buff[p+1] != 0 || pData->cb_buff[p+2] != 0 || pData->cb_buff[p+3] != 1)
-               {
-                  vcos_log_error("Error in iframe list\n");
-               }
-            }
-         }
-      }
-      else 
-      {
-         // For segmented record mode, we need to see if we have exceeded our time/size,
-         // but also since we have inline headers turned on we need to break when we get one to
-         // ensure that the new stream has the header in it. If we break on an I-frame, the
-         // SPS/PPS header is actually in the previous chunk.
-         if ((buffer->flags & MMAL_BUFFER_HEADER_FLAG_CONFIG) &&
-             ((pData->pstate->segmentSize && current_time > base_time + pData->pstate->segmentSize) ||
-              (pData->pstate->splitWait && pData->pstate->splitNow)))
-         {
-            FILE *new_handle;
-
-            base_time = current_time;
-
-            pData->pstate->splitNow = 0;
-            pData->pstate->segmentNumber++;
-
-            // Only wrap if we have a wrap point set
-            if (pData->pstate->segmentWrap && pData->pstate->segmentNumber > pData->pstate->segmentWrap)
-               pData->pstate->segmentNumber = 1;
-
-            new_handle = open_filename(pData->pstate);
-
-            if (new_handle)
-            {
-               fclose(pData->file_handle);
-               pData->file_handle = new_handle;
-            }
-
-            new_handle = open_imv_filename(pData->pstate);
-
-            if (new_handle)
-            {
-               fclose(pData->imv_file_handle);
-               pData->imv_file_handle = new_handle;
-            }
-         }
-         if (buffer->length)
-         {
-            mmal_buffer_header_mem_lock(buffer);
-            if(buffer->flags & MMAL_BUFFER_HEADER_FLAG_CODECSIDEINFO)
-            {
-               if(pData->pstate->inlineMotionVectors)
-               {
-                  bytes_written = fwrite(buffer->data, 1, buffer->length, pData->imv_file_handle);
-                  if(pData->flush_buffers) fflush(pData->imv_file_handle);
-               }
-               else
-               {
-                  //We do not want to save inlineMotionVectors...
-                  bytes_written = buffer->length;
-               }
-            }
-            else
-            {
-               bytes_written = fwrite(buffer->data, 1, buffer->length, pData->file_handle);            
-               if(pData->flush_buffers) fflush(pData->file_handle);
-            }
-
-            if (pData->pstate->bWifiStreaming)
-            	output_to_wifi(buffer, pData->pstate);
-
-            mmal_buffer_header_mem_unlock(buffer);
-
-            if (bytes_written != buffer->length)
-            {
-               vcos_log_error("Failed to write buffer data (%d from %d)- aborting", bytes_written, buffer->length);
-               pData->abort = 1;
-            }
-         }
-      }
+		mmal_buffer_header_mem_unlock(buffer);
+	 }
 
       // See if the second count has changed and we need to update any annotation
       if (current_time/1000 != last_second)
@@ -2460,16 +2283,12 @@ static int init_wifi(RASPIVID_STATE *state)
 
 	wifi_state.packet_header_length = packet_header_init(wifi_state.packet_transmit_buffer);
 	fifo_init(wifi_state.fifo, state->param_fifo_count, state->param_data_packets_per_block);
-	//fifo_open(state->wifi_state.fifo, state->param_fifo_count);
-	//fifo_create_select_set(state->wifi_state.fifo, state->param_fifo_count, &state->wifi_state.fifo_set, &state->wifi_state.max_fifo_fd);
-
 
 	//initialize forward error correction
 	fec_init();
 
 	wifi_state.fBrokenSocket = 0;
 	wifi_state.pcnt = 0;
-	wifi_state.packet_header_length = 0;
 	wifi_state.max_fifo_fd = -1;
 	wifi_state.start_time = time(NULL);
 
@@ -2481,7 +2300,6 @@ static int init_wifi(RASPIVID_STATE *state)
 				state->param_interface, wifi_state.szErrbuf);
 		return (1);
 	}
-
 
 	pcap_setnonblock(wifi_state.ppcap, 0, wifi_state.szErrbuf);
 
@@ -2579,24 +2397,7 @@ int main(int argc, const char **argv)
       encoder_input_port  = state.encoder_component->input[0];
       encoder_output_port = state.encoder_component->output[0];
 
-      if (state.preview_parameters.wantPreview )
-      {
-         if (state.verbose)
-         {
-            fprintf(stderr, "Connecting camera preview port to preview input port\n");
-            fprintf(stderr, "Starting video preview\n");
-         }
-
-         // Connect camera to preview
-         status = connect_ports(camera_preview_port, preview_input_port, &state.preview_connection);
-
-         if (status != MMAL_SUCCESS)
-            state.preview_connection = NULL;
-      }
-      else
-      {
-         status = MMAL_SUCCESS;
-      }
+      status = MMAL_SUCCESS;
 
       if (status == MMAL_SUCCESS)
       {
@@ -2614,99 +2415,12 @@ int main(int argc, const char **argv)
          }
 
          state.callback_data.file_handle = NULL;
-
-         if (state.filename)
-         {
-            if (state.filename[0] == '-')
-            {
-               state.callback_data.file_handle = stdout;
-
-               // Ensure we don't upset the output stream with diagnostics/info
-               state.verbose = 0;
-            }
-            else
-            {
-               state.callback_data.file_handle = open_filename(&state);
-            }
-
-            if (!state.callback_data.file_handle)
-            {
-               // Notify user, carry on but discarding encoded output buffers
-               vcos_log_error("%s: Error opening output file: %s\nNo output file will be generated\n", __func__, state.filename);
-            }
-         }
-
          state.callback_data.imv_file_handle = NULL;
-
-         if (state.imv_filename)
-         {
-            if (state.imv_filename[0] == '-')
-            {
-               state.callback_data.imv_file_handle = stdout;
-            }
-            else
-            {
-               state.callback_data.imv_file_handle = open_imv_filename(&state);
-            }
-
-            if (!state.callback_data.imv_file_handle)
-            {
-               // Notify user, carry on but discarding encoded output buffers
-               fprintf(stderr, "Error opening output file: %s\nNo output file will be generated\n",state.imv_filename);
-               state.inlineMotionVectors=0;
-            }
-         }
-
-         if(state.bCircularBuffer)
-         {
-            if(state.bitrate == 0)
-            {
-               vcos_log_error("%s: Error circular buffer requires constant bitrate and small intra period\n", __func__);
-               goto error;
-            }
-            else if(state.timeout == 0)
-            {
-               vcos_log_error("%s: Error, circular buffer size is based on timeout must be greater than zero\n", __func__);
-               goto error;
-            }
-            else if(state.waitMethod != WAIT_METHOD_KEYPRESS && state.waitMethod != WAIT_METHOD_SIGNAL)
-            {
-               vcos_log_error("%s: Error, Circular buffer mode requires either keypress (-k) or signal (-s) triggering\n", __func__);
-               goto error;
-            }
-            else if(!state.callback_data.file_handle)
-            {
-               vcos_log_error("%s: Error require output file (or stdout) for Circular buffer mode\n", __func__);
-               goto error;
-            }
-            else
-            {
-               int count = state.bitrate * (state.timeout / 1000) / 8;
-
-               state.callback_data.cb_buff = (char *) malloc(count);
-               if(state.callback_data.cb_buff == NULL)
-               {
-                  vcos_log_error("%s: Unable to allocate circular buffer for %d seconds at %.1f Mbits\n", __func__, state.timeout / 1000, (double)state.bitrate/1000000.0);
-                  goto error;
-               }
-               else
-               {
-                  state.callback_data.cb_len = count;
-                  state.callback_data.cb_wptr = 0;
-                  state.callback_data.cb_wrap = 0;
-                  state.callback_data.cb_data = 0;
-                  state.callback_data.iframe_buff_wpos = 0;
-                  state.callback_data.iframe_buff_rpos = 0;
-                  state.callback_data.header_wptr = 0;
-               }
-            }
-         }
 
          if (state.bWifiStreaming)
          {
         	 init_wifi(&state);
          }
-
 
          // Set up our userdata - this is passed though to the callback where we need the information.
          state.callback_data.pstate = &state;
@@ -2728,131 +2442,66 @@ int main(int argc, const char **argv)
 
          stop_timer(INIT_TIMER);
 
-         if (state.demoMode)
-         {
-            // Run for the user specific time..
-            int num_iterations = state.timeout / state.demoInterval;
-            int i;
+		// Only encode stuff if we have a filename and it opened
+		// Note we use the copy in the callback, as the call back MIGHT change the file handle
+		if (state.bWifiStreaming)
+		{
+		   int running = 1;
 
-            if (state.verbose)
-               fprintf(stderr, "Running in demo mode\n");
+		   // Send all the buffers to the encoder output port
+		   {
+			  int num = mmal_queue_length(state.encoder_pool->queue);
+			  int q;
+			  for (q=0;q<num;q++)
+			  {
+				 MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
 
-            for (i=0;state.timeout == 0 || i<num_iterations;i++)
-            {
-               raspicamcontrol_cycle_test(state.camera_component);
-               vcos_sleep(state.demoInterval);
-            }
-         }
-         else
-         {
-            // Only encode stuff if we have a filename and it opened
-            // Note we use the copy in the callback, as the call back MIGHT change the file handle
-            if (state.callback_data.file_handle || state.bWifiStreaming)
-            {
-               int running = 1;
+				 if (!buffer)
+					vcos_log_error("Unable to get a required buffer %d from pool queue", q);
 
-               // Send all the buffers to the encoder output port
-               {
-                  int num = mmal_queue_length(state.encoder_pool->queue);
-                  int q;
-                  for (q=0;q<num;q++)
-                  {
-                     MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
+				 if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
+					vcos_log_error("Unable to send a buffer to encoder output port (%d)", q);
+			  }
+		   }
 
-                     if (!buffer)
-                        vcos_log_error("Unable to get a required buffer %d from pool queue", q);
+		   int initialCapturing=state.bCapturing;
+		   while (running)
+		   {
+			   start_timer(CAPTURE_TIMER);
+			  // Change state
+			  state.bCapturing = !state.bCapturing;
 
-                     if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
-                        vcos_log_error("Unable to send a buffer to encoder output port (%d)", q);
-                  }
-               }
-               
-               int initialCapturing=state.bCapturing;
-               while (running)
-               {
-            	   start_timer(CAPTURE_TIMER);
-                  // Change state
-                  state.bCapturing = !state.bCapturing;
+			  if (mmal_port_parameter_set_boolean(camera_video_port, MMAL_PARAMETER_CAPTURE, state.bCapturing) != MMAL_SUCCESS)
+			  {
+				 // How to handle?
+			  }
 
-                  if (mmal_port_parameter_set_boolean(camera_video_port, MMAL_PARAMETER_CAPTURE, state.bCapturing) != MMAL_SUCCESS)
-                  {
-                     // How to handle?
-                  }
+			  if (state.verbose)
+			  {
+				 if (state.bCapturing)
+					fprintf(stderr, "Starting video capture\n");
+				 else
+					fprintf(stderr, "Pausing video capture\n");
+			  }
 
-                  // In circular buffer mode, exit and save the buffer (make sure we do this after having paused the capture
-                  if(state.bCircularBuffer && !state.bCapturing)
-                  {
-                     break;
-                  }
+			  running = wait_for_next_change(&state);
+			  stop_timer(CAPTURE_TIMER);
+		   }
 
-                  if (state.verbose)
-                  {
-                     if (state.bCapturing)
-                        fprintf(stderr, "Starting video capture\n");
-                     else
-                        fprintf(stderr, "Pausing video capture\n");
-                  }
-                  
-                  if(state.splitWait)
-                  {
-                     if(state.bCapturing)
-                     {
-                        if (mmal_port_parameter_set_boolean(encoder_output_port, MMAL_PARAMETER_VIDEO_REQUEST_I_FRAME, 1) != MMAL_SUCCESS)
-                        {
-                           vcos_log_error("failed to request I-FRAME");
-                        }
-                     }
-                     else
-                     {
-                        if(!initialCapturing)
-                           state.splitNow=1;   
-                     }
-                     initialCapturing=0;
-                  }
-                  running = wait_for_next_change(&state);
-                  stop_timer(CAPTURE_TIMER);
-               }
-
-               if (state.verbose)
-                  fprintf(stderr, "Finished capture\n");
-            }
-            else
-            {
-               if (state.timeout)
-                  vcos_sleep(state.timeout);
-               else
-               {
-                  // timeout = 0 so run forever
-                  while(1)
-                     vcos_sleep(ABORT_INTERVAL);
-               }
-            }
-         }
-      }
-      else
-      {
-         mmal_status_to_int(status);
-         vcos_log_error("%s: Failed to connect camera to preview", __func__);
-      }
-
-      if(state.bCircularBuffer)
-      {
-         int copy_from_end, copy_from_start;
-
-         copy_from_end = state.callback_data.cb_len - state.callback_data.iframe_buff[state.callback_data.iframe_buff_rpos];
-         copy_from_start = state.callback_data.cb_len - copy_from_end;
-         copy_from_start = state.callback_data.cb_wptr < copy_from_start ? state.callback_data.cb_wptr : copy_from_start;
-         if(!state.callback_data.cb_wrap)
-         {
-            copy_from_start = state.callback_data.cb_wptr;
-            copy_from_end = 0;
-         }
-
-         fwrite(state.callback_data.header_bytes, 1, state.callback_data.header_wptr, state.callback_data.file_handle);
-         // Save circular buffer
-         fwrite(state.callback_data.cb_buff + state.callback_data.iframe_buff[state.callback_data.iframe_buff_rpos], 1, copy_from_end, state.callback_data.file_handle);
-         fwrite(state.callback_data.cb_buff, 1, copy_from_start, state.callback_data.file_handle);
-         if(state.callback_data.flush_buffers) fflush(state.callback_data.file_handle);
+		   if (state.verbose)
+			  fprintf(stderr, "Finished capture\n");
+		}
+		else
+		{
+		   if (state.timeout)
+			  vcos_sleep(state.timeout);
+		   else
+		   {
+			  // timeout = 0 so run forever
+			  while(1)
+				 vcos_sleep(ABORT_INTERVAL);
+		   }
+		}
       }
 
 
