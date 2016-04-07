@@ -205,7 +205,8 @@ void block_buffer_list_reset(block_buffer_t *block_buffer_list, size_t block_buf
 static int video_decode_process(VIDEO_DECODE_STATE *state, const void* input_buffer, size_t input_buffer_len)
 {
 	int status = 0;
-      while((state->buf = ilclient_get_input_buffer(state->video_decode, 130, 1)) != NULL)
+	int remaining = input_buffer_len;
+      while(remaining > 0 && (state->buf = ilclient_get_input_buffer(state->video_decode, 130, 1)) != NULL)
       {
          // feed data and wait until we get port settings changed
          unsigned char *dest = state->buf->pBuffer;
@@ -214,6 +215,8 @@ static int video_decode_process(VIDEO_DECODE_STATE *state, const void* input_buf
 
          if (input_buffer_len < len)
         	 len = input_buffer_len;
+
+         remaining -= len;
 
          memcpy(dest, input_buffer, len);
          state->data_len += len;
@@ -264,20 +267,6 @@ static int video_decode_process(VIDEO_DECODE_STATE *state, const void* input_buf
             break;
          }
       }
-
-      state->buf->nFilledLen = 0;
-      state->buf->nFlags = OMX_BUFFERFLAG_TIME_UNKNOWN | OMX_BUFFERFLAG_EOS;
-
-      if(OMX_EmptyThisBuffer(ILC_GET_HANDLE(state->video_decode), state->buf) != OMX_ErrorNone)
-         status = -20;
-
-      // wait for EOS from render
-      ilclient_wait_for_event(state->video_render, OMX_EventBufferFlag, 90, 0, OMX_BUFFERFLAG_EOS, 0,
-                              ILCLIENT_BUFFER_FLAG_EOS, 10000);
-
-      // need to flush the renderer to allow video_decode to disable its input port
-      ilclient_flush_tunnels(state->tunnel, 0);
-
 
    return 0;
 }
@@ -753,21 +742,35 @@ static int video_decode_init(VIDEO_DECODE_STATE *state)
 
 static int video_decode_destroy(VIDEO_DECODE_STATE *state)
 {
+	int status = 0;
+    state->buf->nFilledLen = 0;
+    state->buf->nFlags = OMX_BUFFERFLAG_TIME_UNKNOWN | OMX_BUFFERFLAG_EOS;
+
+    if(OMX_EmptyThisBuffer(ILC_GET_HANDLE(state->video_decode), state->buf) != OMX_ErrorNone)
+       status = -20;
+
+    // wait for EOS from render
+    ilclient_wait_for_event(state->video_render, OMX_EventBufferFlag, 90, 0, OMX_BUFFERFLAG_EOS, 0,
+                            ILCLIENT_BUFFER_FLAG_EOS, 10000);
+
+    // need to flush the renderer to allow video_decode to disable its input port
+    ilclient_flush_tunnels(state->tunnel, 0);
+
 	ilclient_disable_tunnel(state->tunnel);
-	   ilclient_disable_tunnel(state->tunnel+1);
-	   ilclient_disable_tunnel(state->tunnel+2);
-	   ilclient_disable_port_buffers(state->video_decode, 130, NULL, NULL, NULL);
-	   ilclient_teardown_tunnels(state->tunnel);
+	ilclient_disable_tunnel(state->tunnel+1);
+	ilclient_disable_tunnel(state->tunnel+2);
+	ilclient_disable_port_buffers(state->video_decode, 130, NULL, NULL, NULL);
+	ilclient_teardown_tunnels(state->tunnel);
 
-	   ilclient_state_transition(state->list, OMX_StateIdle);
-	   ilclient_state_transition(state->list, OMX_StateLoaded);
+	ilclient_state_transition(state->list, OMX_StateIdle);
+	ilclient_state_transition(state->list, OMX_StateLoaded);
 
-	   ilclient_cleanup_components(state->list);
+	ilclient_cleanup_components(state->list);
 
-	   OMX_Deinit();
+	OMX_Deinit();
 
-	   ilclient_destroy(state->client);
-	   return 0;
+	ilclient_destroy(state->client);
+	return 0;
 
 }
 
